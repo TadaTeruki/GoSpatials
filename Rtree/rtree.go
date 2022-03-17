@@ -171,7 +171,7 @@ func (node *rnode[T, OBJ]) isPoint() bool{
 func (rtree *Rtree[T, OBJ]) Store(start []T, end []T, obj OBJ){
 
 	if uint(len(start)) != rtree.dim || uint(len(end)) != rtree.dim {
-		panic("NO!")
+		panic("Invalid point data pushed")
 	}
 
 	objrect := rect[T]{ start:make([]T, rtree.dim), end:make([]T, rtree.dim) }
