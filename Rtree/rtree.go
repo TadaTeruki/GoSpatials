@@ -1,7 +1,6 @@
 
 package rtree
 
-
 type Numerics interface {
 	~int | ~int8 | ~int16 | ~int32 | ~int64 |
 	~uint | ~uint8 | ~uint16 | ~uint32 | ~uint64 | ~uintptr |
@@ -25,7 +24,22 @@ type Rtree[T Numerics, OBJ any] struct {
 	max	 	uint
 }
 
+func min[T Numerics](a, b T) T{
+	if a < b { return a }
+	return b
+}
+
+func max[T Numerics](a, b T) T{
+	if a > b { return a }
+	return b 
+}
+
+// Create a new R-tree structure
 func New[T Numerics, OBJ any](dim uint, max uint) Rtree[T, OBJ]{
+
+	if max <= 1 {
+		panic("maximum branching factor must be 2 or more")
+	}
 
 	noneRect := rect[T]{ start:make([]T, dim), end:make([]T, dim) }
 	rootNode := rnode[T, OBJ]{ rect:noneRect, children:[]*rnode[T, OBJ]{}, object:nil }
@@ -33,16 +47,16 @@ func New[T Numerics, OBJ any](dim uint, max uint) Rtree[T, OBJ]{
 	return Rtree[T, OBJ]{ root:rootNode, dim:dim, max:max }
 }
 
-func (rnode *rnode[T, OBJ]) isObject() bool{
-	return rnode.object != nil
+func (node *rnode[T, OBJ]) isObject() bool{
+	return node.object != nil
 }
 
-func (rnode *rnode[T, OBJ]) isInsideOf(targnode *rnode[T, OBJ]) bool {
-	return rnode.rect.isInsideOf(&targnode.rect)
+func (node *rnode[T, OBJ]) isInsideOf(targnode *rnode[T, OBJ]) bool {
+	return node.rect.isInsideOf(&targnode.rect)
 }
 
-func (rnode *rnode[T, OBJ]) isOutsideOf(targnode *rnode[T, OBJ]) bool {
-	return rnode.rect.isOutsideOf(&targnode.rect)
+func (node *rnode[T, OBJ]) isOutsideOf(targnode *rnode[T, OBJ]) bool {
+	return node.rect.isOutsideOf(&targnode.rect)
 }
 
 func (rrect *rect[T]) isInsideOf(targrect *rect[T]) bool{
@@ -63,18 +77,6 @@ func (rrect *rect[T]) isOutsideOf(targrect *rect[T]) bool{
 	return false
 }
 
-
-func min[T Numerics](a, b T) T{
-	if a < b { return a }
-	return b
-}
-
-func max[T Numerics](a, b T) T{
-	if a > b { return a }
-	return b 
-}
-
-
 func (node *rnode[T, OBJ]) getSizeExpandedBy(givennode *rnode[T, OBJ]) T{
 	var expanded T = 1
 	for i := range node.rect.start {
@@ -83,7 +85,6 @@ func (node *rnode[T, OBJ]) getSizeExpandedBy(givennode *rnode[T, OBJ]) T{
 
 	return expanded
 }
-
 
 func (rnode *rnode[T, OBJ]) getSize() T{
 	var size T = 1
@@ -106,6 +107,25 @@ func expandedRect[T Numerics](a, b *rect[T]) rect[T]{
 	return rect
 }
 
+func (node *rnode[T, OBJ]) getDepth() int{
+	s := 0
+	for i := range node.children{
+		s = max(s, node.children[i].getDepth()+1)
+	}
+	return s
+}
+
+func (node *rnode[T, OBJ]) isPoint() bool{
+
+	for i := range node.rect.start{
+		if node.rect.start[i] != node.rect.end[i] {
+			return false
+		}
+	}
+	return true
+}
+
+
 func (node *rnode[T, OBJ]) store(objnode *rnode[T, OBJ], max_children_num uint){
 
 	if node.isObject() == true {
@@ -122,9 +142,9 @@ func (node *rnode[T, OBJ]) store(objnode *rnode[T, OBJ], max_children_num uint){
 
 		var distribution_ad struct{ a, b int }
 
-		if node.children[0].isObject() == true { //オブジェクトを格納するノードだった場合
+		if node.children[0].isObject() == true {
 			
-			if uint(len(node.children)) >= max_children_num{ // ノードがいっぱいだった時
+			if uint(len(node.children)) >= max_children_num{
 				
 				var max_expantion_size T = 0
 	
@@ -179,28 +199,11 @@ func (node *rnode[T, OBJ]) store(objnode *rnode[T, OBJ], max_children_num uint){
 
 }
 
-func (node *rnode[T, OBJ]) getDepth() int{
-	s := 0
-	for i := range node.children{
-		s = max(s, node.children[i].getDepth()+1)
-	}
-	return s
-}
-
-func (node *rnode[T, OBJ]) isPoint() bool{
-
-	for i := range node.rect.start{
-		if node.rect.start[i] != node.rect.end[i] {
-			return false
-		}
-	}
-	return true
-}
-
+// Store a new rectangle object
 func (rtree *Rtree[T, OBJ]) Store(start []T, end []T, obj OBJ){
 
 	if uint(len(start)) != rtree.dim || uint(len(end)) != rtree.dim {
-		panic("Invalid data stored")
+		panic("invalid data was stored")
 	}
 
 	objrect := rect[T]{ start:make([]T, rtree.dim), end:make([]T, rtree.dim) }
@@ -220,6 +223,34 @@ func (rtree *Rtree[T, OBJ]) Store(start []T, end []T, obj OBJ){
 	}
 
 	rtree.root.store(&objnode, rtree.max)
-
 }
 
+// Store a new point object
+func (rtree *Rtree[T, OBJ]) StorePoint(point []T, obj OBJ){
+	rtree.Store(point, point, obj)
+}
+
+func (node *rnode[T, OBJ]) search(search_rect *rect[T], f func([]T, []T, OBJ)){
+
+	if node.isObject(){
+		if node.rect.isInsideOf(search_rect) == true {
+			f(node.rect.start, node.rect.end, *node.object)
+		}
+	} else {
+		for i := range node.children {
+			if node.children[i].rect.isOutsideOf(search_rect) == false {
+				node.children[i].search(search_rect, f)
+			}
+		}
+	}
+}
+
+// Search object within a specified rectangle
+func (rtree *Rtree[T, OBJ]) Search(start []T, end []T, f func([]T, []T, OBJ)){
+
+	for i := 0; i < int(rtree.dim); i++ {
+		start[i], end[i]  = min(start[i], end[i]), max(start[i], end[i])
+	}
+
+	rtree.root.search(&rect[T]{start:start, end:end}, f)
+}
