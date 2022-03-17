@@ -117,37 +117,50 @@ func (node *rnode[T, OBJ]) store(objnode *rnode[T, OBJ], max_children_num uint){
 		}
 	} else {
 
+		distribution := true
 		node.children = append(node.children, objnode)
 
-		// node distribution (Quadratic-Cost)
-		if uint(len(node.children)) > max_children_num{
+		var distribution_ad struct{ a, b int }
 
-			var distribution_ad struct{ a, b int }
-			var max_expantion_size T = 0
-
-			for i := range node.children {
-				for j := i+1; j<len(node.children); j++ {
-					expantion_size := node.children[i].getSizeExpandedBy(node.children[j])
-					if expantion_size < 0 {
-						panic("")
-					}
-					if max_expantion_size < expantion_size {
-						max_expantion_size = expantion_size
-						distribution_ad.a  = i
-						distribution_ad.b  = j
+		if node.children[0].isObject() == true { //オブジェクトを格納するノードだった場合
+			
+			if uint(len(node.children)) >= max_children_num{ // ノードがいっぱいだった時
+				
+				var max_expantion_size T = 0
+	
+				for i := range node.children {
+					size_i := node.children[i].getSize()
+					for j := i+1; j<len(node.children); j++ {
+						size_j := node.children[j].getSize()
+						expantion_size := max(0, node.children[i].getSizeExpandedBy(node.children[j])-size_i-size_j)
+						if max_expantion_size <= expantion_size {
+							max_expantion_size = expantion_size
+							distribution_ad.a  = i
+							distribution_ad.b  = j
+						}
 					}
 				}
+				
+				
+			} else {
+				distribution = false
 			}
 
-			size_a := node.children[distribution_ad.a].getSize()
-			size_b := node.children[distribution_ad.b].getSize()
+		} else {
+			distribution_ad.a  = 0
+			distribution_ad.b  = 1
+			
+		}
+		if distribution {
+			size_a:= node.children[distribution_ad.a].getSize()
+			size_b:= node.children[distribution_ad.b].getSize()
 
 			for i := range node.children {
 				if i == distribution_ad.a || i == distribution_ad.b { continue }
-
 				size_i := node.children[i].getSize()
-				expantion_size_a := node.children[distribution_ad.a].getSizeExpandedBy(node.children[i]) - size_a - size_i
-				expantion_size_b := node.children[distribution_ad.b].getSizeExpandedBy(node.children[i]) - size_b - size_i
+
+				expantion_size_a := max(0, node.children[distribution_ad.a].getSizeExpandedBy(node.children[i])-size_a-size_i)
+				expantion_size_b := max(0, node.children[distribution_ad.b].getSizeExpandedBy(node.children[i])-size_b-size_i)
 
 				if expantion_size_a < expantion_size_b {
 					node.children[distribution_ad.a].store(node.children[i], max_children_num)
@@ -158,8 +171,9 @@ func (node *rnode[T, OBJ]) store(objnode *rnode[T, OBJ], max_children_num uint){
 
 			node.children[0], node.children[1] = node.children[distribution_ad.a], node.children[distribution_ad.b]
 			node.children = node.children[:2]
-
 		}
+
+
 		node.rect = expandedRect(&node.rect, &objnode.rect)
 	}
 
