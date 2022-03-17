@@ -1,6 +1,7 @@
 
 package rtree
 
+
 type Numerics interface {
 	~int | ~int8 | ~int16 | ~int32 | ~int64 |
 	~uint | ~uint8 | ~uint16 | ~uint32 | ~uint64 | ~uintptr |
@@ -74,11 +75,12 @@ func max[T Numerics](a, b T) T{
 }
 
 
-func (rnode *rnode[T, OBJ]) getSizeExpandedBy(givennode *rnode[T, OBJ]) T{
+func (node *rnode[T, OBJ]) getSizeExpandedBy(givennode *rnode[T, OBJ]) T{
 	var expanded T = 1
-	for i := 0; i < len(rnode.rect.start); i++ {
-		expanded *= max(rnode.rect.end[i], givennode.rect.end[i]) - min(rnode.rect.start[i], givennode.rect.start[i]) 
+	for i := range node.rect.start {
+		expanded *= max(node.rect.end[i], givennode.rect.end[i]) - min(node.rect.start[i], givennode.rect.start[i]) 
 	}
+
 	return expanded
 }
 
@@ -104,7 +106,7 @@ func expandedRect[T Numerics](a, b *rect[T]) rect[T]{
 	return rect
 }
 
-func (node *rnode[T, OBJ]) store(objnode *rnode[T, OBJ], max uint){
+func (node *rnode[T, OBJ]) store(objnode *rnode[T, OBJ], max_children_num uint){
 
 	if node.isObject() == true {
 		newnode := *node
@@ -115,37 +117,50 @@ func (node *rnode[T, OBJ]) store(objnode *rnode[T, OBJ], max uint){
 		}
 	} else {
 
-		if uint(len(node.children)) < max {
-			node.children = append(node.children, objnode)
-		} else {
-			min_expantion_size := T(0)
-			min_size := T(0)
-			node_ad := -1
-		
-			for i := 0; i<len(node.children); i++ {
-				size := node.children[i].getSize()
-				expantion_size := node.children[i].getSizeExpandedBy(objnode) - size
-				if expantion_size < 0 { expantion_size = 0 }
-				chosen := false
-				if min_expantion_size > expantion_size || node_ad == -1{
-					chosen = true
-				} else if min_expantion_size == expantion_size && min_size > size{
-					chosen = true
-				}
+		node.children = append(node.children, objnode)
 
-				if chosen {
-					node_ad = i
-					min_expantion_size = expantion_size
-					min_size = size
+		// node distribution (Quadratic-Cost)
+		if uint(len(node.children)) > max_children_num{
+
+			var distribution_ad struct{ a, b int }
+			var max_expantion_size T = 0
+
+			for i := range node.children {
+				for j := i+1; j<len(node.children); j++ {
+					expantion_size := node.children[i].getSizeExpandedBy(node.children[j])
+					if expantion_size < 0 {
+						panic("")
+					}
+					if max_expantion_size < expantion_size {
+						max_expantion_size = expantion_size
+						distribution_ad.a  = i
+						distribution_ad.b  = j
+					}
 				}
 			}
 
-			node.children[node_ad].store(objnode, max)
+			size_a := node.children[distribution_ad.a].getSize()
+			size_b := node.children[distribution_ad.b].getSize()
+
+			for i := range node.children {
+				if i == distribution_ad.a || i == distribution_ad.b { continue }
+
+				size_i := node.children[i].getSize()
+				expantion_size_a := node.children[distribution_ad.a].getSizeExpandedBy(node.children[i]) - size_a - size_i
+				expantion_size_b := node.children[distribution_ad.b].getSizeExpandedBy(node.children[i]) - size_b - size_i
+
+				if expantion_size_a < expantion_size_b {
+					node.children[distribution_ad.a].store(node.children[i], max_children_num)
+				} else {
+					node.children[distribution_ad.b].store(node.children[i], max_children_num)
+				}
+			}
+
+			node.children[0], node.children[1] = node.children[distribution_ad.a], node.children[distribution_ad.b]
+			node.children = node.children[:2]
 
 		}
-
 		node.rect = expandedRect(&node.rect, &objnode.rect)
-
 	}
 
 }
@@ -171,7 +186,7 @@ func (node *rnode[T, OBJ]) isPoint() bool{
 func (rtree *Rtree[T, OBJ]) Store(start []T, end []T, obj OBJ){
 
 	if uint(len(start)) != rtree.dim || uint(len(end)) != rtree.dim {
-		panic("Invalid point data pushed")
+		panic("Invalid data stored")
 	}
 
 	objrect := rect[T]{ start:make([]T, rtree.dim), end:make([]T, rtree.dim) }
